@@ -4,7 +4,7 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
  
 }
 
@@ -58,4 +58,29 @@ model AIAnalysis {
   summary         String   @db.Text
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  
+  // Relations
+  inboxSettings InboxSetting[]
+}
+
+model InboxSetting {
+  id              String   @id @default(uuid())
+  userId          String
+  emailAddress    String   // The specific inbox to connect to (e.g., ops@company.com)
+  imapHost        String   // e.g., imap.gmail.com
+  encryptedPass   String   // App Password token reference
+  senderWhitelist String   // e.g., "dhl.com, fedex.com"
+  subjectKeywords String   // e.g., "manifest, hold, clearance"
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  // Relations
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
