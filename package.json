@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync-emails": "ts-node -r tsconfig-paths/register scripts/runSync.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
@@ -15,14 +16,17 @@
     "@huggingface/transformers": "^4.2.0",
     "@prisma/client": "^6.19.3",
     "dotenv": "^17.0.1",
-    "next": "^16.2.7",
+    "imapflow": "^1.4.0",
+    "mailparser": "^3.9.9",
+    "next": "^9.3.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
@@ -30,6 +34,8 @@
     "eslint-config-next": "16.2.7",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5"
   }
 }
