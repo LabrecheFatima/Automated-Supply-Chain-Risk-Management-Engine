@@ -1,0 +1,61 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+ 
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+ 
+
+}
+
+enum ShipmentStatus {
+  ON_TIME
+  DELAYED
+  CRITICAL
+}
+
+model Shipment {
+  id              String         @id @default(uuid())
+  trackingNumber  String         @unique
+  origin          String
+  destination     String
+  status          ShipmentStatus @default(ON_TIME)
+  currentLocation String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  // Relations
+  rawLogs         RawLog[]
+  aiAnalysis      AIAnalysis?
+}
+
+model RawLog {
+  id             String    @id @default(uuid())
+  shipmentId     String?
+  shipment       Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  rawText        String    @db.Text // Holds the messy email text
+  processed      Boolean   @default(false)
+  receivedAt     DateTime  @default(now())
+}
+
+model AIAnalysis {
+  id              String   @id @default(uuid())
+  shipmentId      String   @unique
+  shipment        Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  
+  // local Transformers.js Metrics
+  nlpLabel        String   // e.g., "NEGATIVE" (Risk) or "POSITIVE" (Smooth running)
+  confidenceScore Float    // The raw certainty percentage decimal from the model
+  severityLevel   Int      // Transformed risk tier (e.g., scale of 1-5 calculated from score)
+  
+  summary         String   @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # Container 1: The PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: logishield_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: logishield
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # Container 2: Your Next.js Application
+  nextjs_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logishield_ui
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://admin:supersecretpassword@postgres:5432/logishield?schema=public"
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
