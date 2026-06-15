@@ -1,7 +1,10 @@
-import { EmailSyncWorker } from '../src/lib/emailWorker';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+// Native CommonJS wrapper bypasses the strict ESM module lookup rules in ts-node
+const { EmailSyncWorker } = require('../src/lib/emailWorker');
 import * as dotenv from 'dotenv';
 
-// Load environment connection secrets
 dotenv.config();
 
 async function runDevWorker() {
