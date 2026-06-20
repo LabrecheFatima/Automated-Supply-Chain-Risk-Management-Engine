@@ -12,19 +12,23 @@ const { processIncomingLog } = require('./nlp');
 export class EmailSyncWorker {
   private imap: ImapFlow | null = null;
   private config: any;
+  private userId: string;
 
+  // 🛠️ PHASE 2: Accept the explicitly decrypted app password and the corresponding userId
   constructor(inboxSetting: {
+    id: string;
+    userId: string;
     imapHost: string;
     emailAddress: string;
-    encryptedPass: string;
-  }) {
+  }, decryptedPass: string) {
+    this.userId = inboxSetting.userId;
     this.config = {
       host: inboxSetting.imapHost,
       port: 993,
       secure: true,
       auth: {
         user: inboxSetting.emailAddress,
-        pass: inboxSetting.encryptedPass,
+        pass: decryptedPass, // Decrypted at orchestrator level for safety
       },
       logger: false,
     };
@@ -34,19 +38,22 @@ export class EmailSyncWorker {
     this.imap = new ImapFlow(this.config);
 
     try {
-      console.log(`🔌 [Email Worker] Connecting to inbox: ${this.config.auth.user}...`);
+      console.log(`🔌 [Email Worker] Connecting to multi-tenant inbox: ${this.config.auth.user}...`);
       await this.imap.connect();
 
       const clientLock = await this.imap.getMailboxLock('INBOX');
       
       try {
-        // 🛠️ DAY 16 STEP 1: Fetch the user's active preferences dynamically from the DB
+        // Fetch setting specific to this configuration row
         const userSettings = await prisma.inboxSetting.findFirst({
-          where: { emailAddress: this.config.auth.user },
+          where: { emailAddress: this.config.auth.user, userId: this.userId },
         });
 
-        // Pull keywords array from DB, fallback to generic keywords if unconfigured
-        const activeKeywords: string[] = userSettings?.trackingKeywords || ['shipment', 'order', 'delivery'];
+        // Fallback setup: Support keyword arrays or custom tracking parameters
+        const activeKeywords: string[] = userSettings?.subjectKeywords 
+          ? userSettings.subjectKeywords.split(',').map((k: string) => k.trim()) 
+          : ['shipment', 'order', 'delivery'];
+
         console.log(`🎯 [Firewall Config] Loaded active filters for ${this.config.auth.user}:`, activeKeywords);
 
         console.log('🔍 [Email Worker] Searching for unread messages...');
@@ -62,9 +69,8 @@ export class EmailSyncWorker {
           console.log(`⚡ [Email Worker] Throttling execution: Processing the ${unreadIds.length} most recent payloads.`);
         }
 
-        // Pass the live database-driven keywords down into the message processor loop
         for (const uid of unreadIds) {
-          await this.processEmailMessage(uid, activeKeywords);
+          await this.processEmailMessage(uid, activeKeywords, userSettings);
         }
 
       } finally {
@@ -72,19 +78,18 @@ export class EmailSyncWorker {
       }
 
       await this.imap.logout();
-      console.log('🔌 [Email Worker] Sync batch completed successfully. Disconnected.');
+      console.log(`🔌 [Email Worker] Sync batch completed for ${this.config.auth.user}.`);
 
     } catch (error) {
-      console.error('❌ [Email Worker] Critical runtime sync fault:', error);
+      console.error(`❌ [Email Worker] Critical fault for ${this.config.auth.user}:`, error);
       if (this.imap) await this.imap.logout().catch(() => {});
     }
   }
 
-  // 🛠️ DAY 16 STEP 2: Accept the active filtering array parameters
-  private async processEmailMessage(uid: number, trackingKeywords: string[]) {
+  private async processEmailMessage(uid: number, trackingKeywords: string[], userSettings: any) {
     if (!this.imap) return;
 
-    const messageContent = await this.imap.fetchOne(uid.toString(), { source: true });
+    const messageContent = await this.imap.fetchOne(uid.toString(), { source: true, uid: true, threadId: true});
     if (!messageContent || !messageContent.source) return;
 
     const parsedEmail = await simpleParser(messageContent.source);
@@ -92,32 +97,47 @@ export class EmailSyncWorker {
     const rawBody = parsedEmail.text || '';
     const sender = parsedEmail.from?.text || '';
 
-    // Convert metadata text pools to lowercase for bulletproof comparison matches
     const subjectLower = subject.toLowerCase();
     const bodyLower = rawBody.toLowerCase();
     const senderLower = sender.toLowerCase();
 
-    // 🛠️ DAY 16 STEP 3: Validate text chunks against the dynamic user parameters
-    const matchesUserPreference = trackingKeywords.some(keyword => {
-      const standardKeyword = keyword.trim().toLowerCase();
-      return (
-        subjectLower.includes(standardKeyword) || 
-        bodyLower.includes(standardKeyword) || 
-        senderLower.includes(standardKeyword)
-      );
-    });
-
-    if (!matchesUserPreference) {
-      console.log(`⏩ [Filter Firewall] Skipping email (No match for active keywords). Subject: "${subject}"`);
-      // Mark it as read so it isn't repeatedly evaluated in future synchronization sweeps
-      await this.imap.messageFlagsAdd(uid.toString(), ['\\Seen']);
-      return; // Fast exit to save local AI model computing overhead!
-    }
-
-    console.log(`🔥 [Match Found] Processing tracking target email: "${subject}" (${rawBody.length} characters)`);
-
     const { trackingId, cleanedText } = extractTrackingId(rawBody);
     const activeTrackingNumber = trackingId || `UNASSIGNED-MAIL-${Date.now()}`;
+
+    const bodySnippet = cleanedText.slice(0, 300).toLowerCase();
+    const intentTarget = userSettings?.trackingSentence?.toLowerCase() || '';
+
+    // 🎯 Task 2.3: Upgraded Semantic Routing Filter Firewall
+    let isRelevantIntent = false;
+
+    if (intentTarget.includes('logistics') || intentTarget.includes('package') || intentTarget.includes('delivery')) {
+      isRelevantIntent = /shipment|tracking|carrier|package|transit|freight|delivery|order/i.test(bodySnippet) ||
+                         /shipment|tracking|delivery/i.test(subjectLower);
+    } else if (intentTarget.includes('course') || intentTarget.includes('academic') || intentTarget.includes('university')) {
+      isRelevantIntent = /course|schedule|grade|professor|exam|university|research/i.test(bodySnippet) ||
+                         /class|exam|schedule/i.test(subjectLower);
+    } else if (intentTarget.includes('health') || intentTarget.includes('beauty') || intentTarget.includes('job')) {
+      isRelevantIntent = /health|skincare|beauty|job|hiring|interview|resume|career/i.test(bodySnippet) ||
+                         /health|beauty|job|interview/i.test(subjectLower);
+    } else {
+      // General broad-spectrum keyword matching fallback
+      isRelevantIntent = trackingKeywords.some(keyword => {
+        const standardKeyword = keyword.trim().toLowerCase();
+        return (
+          subjectLower.includes(standardKeyword) || 
+          bodyLower.includes(standardKeyword) || 
+          senderLower.includes(standardKeyword)
+        );
+      });
+    }
+
+    if (!isRelevantIntent) {
+      console.log(`⏩ [AI Filter Firewall] Skipping unrelated email. Subject: "${subject}"`);
+      await this.imap.messageFlagsAdd(uid.toString(), ['\\Seen']);
+      return;
+    }
+
+    console.log(`🔥 [Match Found] Ingesting tracking target email: "${subject}"`);
 
     let sentimentLabel = 'POSITIVE';
     let confidence = 0.95;
@@ -130,18 +150,29 @@ export class EmailSyncWorker {
       summaryText = summary;
     }
 
+    const targetThreadId = messageContent.threadId || messageContent.uid;
+    const directEmailUrl = `https://mail.google.com/mail/u/0/#inbox/${targetThreadId}`;
+
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const shipment = await tx.shipment.upsert({
-        where: { trackingNumber: activeTrackingNumber },
+        where: { 
+          userId_trackingNumber: {
+            userId: this.userId,
+            trackingNumber: activeTrackingNumber
+          }
+        },
         update: {
-          status: sentimentLabel === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME'
+          status: sentimentLabel === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
+          emailUrl: directEmailUrl // 👈 ADDED LINE: Updates the URL column on matches
         },
         create: {
+          userId: this.userId, 
           trackingNumber: activeTrackingNumber,
           origin: sender || "Unknown Email Sender",
           destination: "Dashboard Sync Queue",
           status: sentimentLabel === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
           currentLocation: "Email Ingestion Inbound",
+          emailUrl: directEmailUrl, // 👈 ADDED LINE: Saves the deep link to the database
         },
       });
 
@@ -172,7 +203,7 @@ export class EmailSyncWorker {
       });
     });
 
-    console.log(`✅ [Email Worker] Successfully ingested and synced Tracking Reference: ${activeTrackingNumber}`);
+    console.log(`✅ [Email Worker] Successfully ingested Tracking Reference: ${activeTrackingNumber}`);
     await this.imap.messageFlagsAdd(uid.toString(), ['\\Seen']);
   }
 }

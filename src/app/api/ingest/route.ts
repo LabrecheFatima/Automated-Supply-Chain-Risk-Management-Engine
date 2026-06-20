@@ -17,45 +17,59 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Zod Firewall Security Check
+    // 2. Validation Check
     const validation = IngestPayloadSchema.safeParse(jsonBody);
     if (!validation.success) {
       const errorMessages = validation.error.errors.map((err) => err.message);
       return NextResponse.json({ success: false, error: 'Validation failed.', details: errorMessages }, { status: 400 });
     }
 
-    const { rawText } = validation.data;
+    // Capture rawText and the incoming deep emailUrl string from request payload
+    // Ensure your Zod schema (IngestPayloadSchema) supports emailUrl as an optional string field!
+    const { rawText, emailUrl } = validation.data as any; 
+
+    // Fetch the active target workspace operator account context
+    const defaultUser = await prisma.user.findFirst();
+    if (!defaultUser) {
+      return NextResponse.json({ error: "No active workspace user profile context discovered." }, { status: 404 });
+    }
+    const userId = defaultUser.id;
 
     // 3. Compute AI Analytics & Extract Tracking Code
     const { sentiment, summary } = await processIncomingLog(rawText);
     const { trackingId, cleanedText } = extractTrackingId(rawText);
 
-    // Defensive default token fallback if no tracking ID is discovered in the text
     const activeTrackingNumber = trackingId || `UNASSIGNED-${Date.now()}`;
 
-    console.log(` [API Ingest] Upserting Shipment & logging data for: ${activeTrackingNumber}`);
+    console.log(`[API Ingest] Upserting Shipment & logging data for: ${activeTrackingNumber}`);
 
-    // 4. PERSISTENCE LAYER: Find or Create the parent Shipment, then link Log + Analysis
-    // We use a safe transaction block or sequence to map everything down natively
+    // 4. PERSISTENCE LAYER: Safe transaction block utilizing compound unique mappings
     const databaseTransaction = await prisma.$transaction(async (tx) => {
       
-      // A. Ensure the parent Shipment record exists
+      // Look up via multi-column unique compound key structure: userId_trackingNumber
       const shipment = await tx.shipment.upsert({
-        where: { trackingNumber: activeTrackingNumber },
+        where: { 
+          userId_trackingNumber: {
+            userId: userId,
+            trackingNumber: activeTrackingNumber
+          }
+        },
         update: {
-          // If it exists and the email shows a critical error, flag the shipping state dynamically
-          status: sentiment.label === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME'
+          status: sentiment.label === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
+          emailUrl: emailUrl || undefined // Safely update string column reference if provided
         },
         create: {
+          userId: userId,
           trackingNumber: activeTrackingNumber,
           origin: "Unknown Ingest Point",
           destination: "Pending Operations",
           status: sentiment.label === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
           currentLocation: "Ingestion Routing System",
+          emailUrl: emailUrl || null // Persists direct email content access reference link
         },
       });
 
-      // B. Save the Messy Email Text into your RawLog model
+      // B. Save the Email Text log metrics
       const rawLog = await tx.rawLog.create({
         data: {
           shipmentId: shipment.id,
@@ -64,7 +78,7 @@ export async function POST(request: Request) {
         },
       });
 
-      // C. Save or update the AI local compilation parameters inside your AIAnalysis model
+      // C. Save or update AI evaluation results
       const severity = sentiment.label === 'NEGATIVE' ? Math.ceil(sentiment.score * 5) : 1;
       
       const aiAnalysis = await tx.aIAnalysis.upsert({
@@ -100,12 +114,7 @@ export async function POST(request: Request) {
         trackingNumber: databaseTransaction.shipment.trackingNumber,
         status: databaseTransaction.shipment.status,
         summary: databaseTransaction.aiAnalysis.summary,
-      },
-      nlpMetrics: {
-        sentiment: databaseTransaction.aiAnalysis.nlpLabel,
-        confidenceScore: databaseTransaction.aiAnalysis.confidenceScore,
-        severity: databaseTransaction.aiAnalysis.severityLevel
-      },
+      }
     });
 
   } catch (error: any) {

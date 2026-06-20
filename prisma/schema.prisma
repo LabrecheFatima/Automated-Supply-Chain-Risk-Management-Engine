@@ -7,17 +7,44 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  inboxSettings InboxSetting[]
+  shipments     Shipment[]     // 🔄 Relational Link: Connects users directly to their tracking streams
+}
+
+model InboxSetting {
+  id               String   @id @default(uuid())
+  userId           String
+  emailAddress     String   @unique // Prevents multiple profiles claiming the same exact inbox
+  imapHost         String
+  encryptedPass    String   // Stores our secure AES-256 encrypted string
+  trackingSentence String   @default("Track all my incoming updates, alerts, and transaction statuses.") // 🔄 Day 16 Upgrade: AI Natural Language Goal Statement
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model Shipment {
   id              String         @id @default(uuid())
-  trackingNumber  String         @unique
+  userId          String         // 🔄 Relational Link: Belongs to a specific user profiles instance
+  trackingNumber  String
   origin          String
   destination     String
   status          ShipmentStatus @default(ON_TIME)
   currentLocation String?
+  emailUrl        String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   aiAnalysis      AIAnalysis?
   rawLogs         RawLog[]
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 🔄 Composite Unique Constraint: A tracking number is unique *per user*, allowing different users to watch matching identifiers!
+  @@unique([userId, trackingNumber])
 }
 
 model RawLog {
@@ -26,7 +53,7 @@ model RawLog {
   rawText    String
   processed  Boolean   @default(false)
   receivedAt DateTime  @default(now())
-  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 }
 
 model AIAnalysis {
@@ -39,27 +66,6 @@ model AIAnalysis {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   shipment        Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-}
-
-model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  name          String?
-  createdAt     DateTime       @default(now())
-  inboxSettings InboxSetting[]
-}
-
-model InboxSetting {
-  id              String   @id @default(uuid())
-  userId          String
-  emailAddress    String
-  imapHost        String
-  encryptedPass   String
-  senderWhitelist String
-  subjectKeywords String
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum ShipmentStatus {

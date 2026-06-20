@@ -6,6 +6,7 @@ export const IngestPayloadSchema = z.object({
     .trim()
     .min(10, { message: "The 'rawText' field is required and must be at least 10 characters." })
     .max(5000, { message: "Security Block: Input length exceeds safe limits (maximum 5000 characters)." }),
+  emailUrl: z.string().url().optional().nullable()
 });
 
 export type IngestPayload = z.infer<typeof IngestPayloadSchema>;

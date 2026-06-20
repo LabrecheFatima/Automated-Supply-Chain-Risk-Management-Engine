@@ -1,25 +1,68 @@
-// seed.ts
-import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { encryptPassword } from '../src/lib/crypto';
 
-// 💡 Prisma 6 automatically resolves the correct file maps from this root folder layout
+// Self-contained instantiation ensures the client reads the fresh schema updates
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Start seeding mock logistics data...');
+  console.log('🌱 Starting Multi-Tenant Database Seeding Strategy...');
 
-  // Clear existing records to avoid unique constraint crashes on rerun
+  // 1. Clean slate: Flush tables in order of dependencies to avoid foreign key violations
   await prisma.aIAnalysis.deleteMany({});
   await prisma.rawLog.deleteMany({});
   await prisma.shipment.deleteMany({});
+  await prisma.inboxSetting.deleteMany({});
+  await prisma.user.deleteMany({});
 
-  // 1. Create a Delayed Shipment
+  console.log('🧹 Database cleared. Inserting fresh multi-tenant profiles and logistics records...');
+
+  // 2. Create User 1: Logistics Focus (Fatima)
+  const user1 = await prisma.user.create({
+    data: {
+      email: 'fatimalabreche438@gmail.com',
+      name: 'Fatima Zohra Labreche',
+      inboxSettings: {
+        create: {
+          emailAddress: 'fatimalabreche438@gmail.com',
+          imapHost: 'imap.gmail.com',
+          encryptedPass: encryptPassword(process.env.EMAIL_ACCOUNT_PASSWORD || 'mock_pass_1'),
+          trackingSentence: 'I want to track all incoming logistics messages, delivery status updates, package transit logs, and carrier alerts.',
+          isActive: true
+        }
+      }
+    }
+  });
+
+  // 3. Create User 2: Education & Research Focus (Amine)
+  const user2 = await prisma.user.create({
+    data: {
+      email: 'student.test@univ-algiers.dz',
+      name: 'Amine Algiers Dev',
+      inboxSettings: {
+        create: {
+          emailAddress: 'student.test@univ-algiers.dz',
+          imapHost: 'imap.gmail.com',
+          encryptedPass: encryptPassword('mock_pass_2'),
+          trackingSentence: 'Monitor my inbox strictly for computer engineering course alerts, academic research paper references, and university schedule modifications.',
+          isActive: true
+        }
+      }
+    }
+  });
+
+  // 4. Seeding Historic Logistics Pipelines Linked to User 1 (Fatima)
+  console.log('📦 Attaching premium mock tracking pipelines to logistics user instance...');
+
+  // Record A: Delayed Shipment
   await prisma.shipment.create({
     data: {
+      userId: user1.id, // Linked to Fatima
       trackingNumber: "TRK-9821-DZ",
       origin: "Port of Algiers, DZ",
       destination: "Constantine, DZ",
       status: "DELAYED",
       currentLocation: "Blida Transit Hub",
+      emailUrl: "https://mail.google.com/mail/u/0/#inbox/18f4a123b4c5de6f", // 🔗 Added direct email content link
       rawLogs: {
         create: [
           {
@@ -33,20 +76,22 @@ async function main() {
           nlpLabel: "NEGATIVE",
           confidenceScore: 0.942,
           severityLevel: 3,
-          summary: "Carrier alert indicates mechanical or transit holdups. Logistics footprint metrics updated to delayed status."
+          summary: "Carrier alert indicates traffic congestion delays near Blida. The estimated delivery timeline has been shifted back by 6 hours."
         }
       }
     }
   });
 
-  // 2. Create a Critical Alert Shipment
+  // Record B: Critical Alert Shipment
   await prisma.shipment.create({
     data: {
+      userId: user1.id, // Linked to Fatima
       trackingNumber: "TRK-4412-INT",
       origin: "Marseille, FR",
       destination: "Algiers Port, DZ",
       status: "CRITICAL",
       currentLocation: "Mediterranean Maritime Boundary",
+      emailUrl: "https://mail.google.com/mail/u/0/#inbox/18f4b567c8d9ef0a", // 🔗 Added direct email content link
       rawLogs: {
         create: [
           {
@@ -60,20 +105,22 @@ async function main() {
           nlpLabel: "NEGATIVE",
           confidenceScore: 0.989,
           severityLevel: 5,
-          summary: "Critical safety risk flag raised. Custom manifest documentation mismatch. Immediate desk audit recommended."
+          summary: "Critical customs hold applied at the Algiers Port due to documentation errors in the freight manifest. Immediate attention required to resolve paperwork discrepancies."
         }
       }
     }
   });
 
-  // 3. Create an On-Time Shipment
+  // Record C: On-Time Shipment
   await prisma.shipment.create({
     data: {
+      userId: user1.id, // Linked to Fatima
       trackingNumber: "TRK-1044-DZ",
       origin: "Oran, DZ",
       destination: "Algiers, DZ",
       status: "ON_TIME",
       currentLocation: "Chlef Highway Checkpoint",
+      emailUrl: "https://mail.google.com/mail/u/0/#inbox/18f4c901e2f3ad4b", // 🔗 Added direct email content link
       rawLogs: {
         create: [
           {
@@ -81,16 +128,26 @@ async function main() {
             processed: true
           }
         ]
+      },
+      aiAnalysis: {
+        create: {
+          nlpLabel: "POSITIVE",
+          confidenceScore: 0.975,
+          severityLevel: 1,
+          summary: "Automated tracking alert indicates that the shipment has successfully cleared the Chlef Highway checkpoint on its normal schedule."
+        }
       }
     }
   });
 
-  console.log('✅ Seeding complete! 3 distinct logistics pipelines created.');
+  console.log(`\n✅ Multi-tenant seeding completed successfully!`);
+  console.log(`👤 Profile 1: ${user1.email} -> 3 Logistics Shipments Configured.`);
+  console.log(`👤 Profile 2: ${user2.email} -> 0 Active Watchers (Ready for onboarding loop testing).`);
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('❌ Seeding failed:', e);
     process.exit(1);
   })
   .finally(async () => {

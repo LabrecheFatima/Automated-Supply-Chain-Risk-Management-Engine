@@ -74,19 +74,38 @@ export async function processIncomingLog(
   try {
     const summarizer = await PipelineSingleton.getSummaryInstance();
     const summaryOutput = await summarizer(rawText, {
-      max_new_tokens: 30,
-      min_new_tokens: 5,
+      max_new_tokens: 40,
+      min_new_tokens: 15,
     });
     summaryText = Array.isArray(summaryOutput) 
       ? summaryOutput[0].summary_text 
       : (summaryOutput as any).summary_text;
+
+    // 💥 SANITIZATION: If the local model hallucinates internal parameter logic, force the descriptive fallback
+    if (/Fit \s*>=|Intent \s*>=|Route The rule/i.test(summaryText) || summaryText.trim().length < 5) {
+      throw new Error("Trigger smart fallback filter");
+    }
+
   } catch {
-    // Self-Healing Descriptive Mock Summary Fallback
-    // Extracts the primary fault sentence context dynamically to simulate an abstract summary
-    const sentences = rawText.split(/[.!?]/);
-    const criticalSentence = sentences.find(s => /incident|exception|discrepancy|hold/i.test(s)) || sentences[0];
-    summaryText = `Operational Alert: ${criticalSentence.trim()}.`;
+    // 🧠 Upgraded Smart Descriptive Fallback Strategy
+    // Filter out unreadable lines, rules, or system configuration blocks before capturing content sentences
+    const cleanSentences = rawText
+      .split(/[.!?]/)
+      .map(s => s.trim())
+      .filter(s => s.length > 15 && !/Fit \s*>=|Intent \s*>=|Rule|Action|Parameter/i.test(s));
+
+    // Look for high-signal action statements or grab the core introductory sentence
+    const criticalSentence = cleanSentences.find(s => /incident|exception|discrepancy|hold|delayed|update|schedule/i.test(s)) || cleanSentences[0];
+    
+    if (criticalSentence) {
+      summaryText = `Operational Alert: ${criticalSentence.replace(/^Operational Alert:\s*/i, '')}.`;
+    } else {
+      summaryText = "Operational Status Update: New automated system logging notification captured for review.";
+    }
   }
+
+  // Final trim to remove any stray characters or broken brackets
+  summaryText = summaryText.replace(/[<>{}[\]]/g, '').trim();
 
   return {
     sentiment: sentimentResult,
