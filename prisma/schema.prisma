@@ -8,10 +8,12 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
+  id            String          @id @default(cuid())
   name          String?
-  createdAt     DateTime       @default(now())
+  email         String          @unique
+  password      String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   inboxSettings InboxSetting[]
   shipments     Shipment[]     // 🔄 Relational Link: Connects users directly to their tracking streams
 }
@@ -30,7 +32,7 @@ model InboxSetting {
 
 model Shipment {
   id              String         @id @default(uuid())
-  userId          String         // 🔄 Relational Link: Belongs to a specific user profiles instance
+  userId          String        
   trackingNumber  String
   origin          String
   destination     String
@@ -43,7 +45,7 @@ model Shipment {
   rawLogs         RawLog[]
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // 🔄 Composite Unique Constraint: A tracking number is unique *per user*, allowing different users to watch matching identifiers!
+ 
   @@unique([userId, trackingNumber])
 }
 

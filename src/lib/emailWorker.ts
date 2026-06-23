@@ -14,7 +14,6 @@ export class EmailSyncWorker {
   private config: any;
   private userId: string;
 
-  // 🛠️ PHASE 2: Accept the explicitly decrypted app password and the corresponding userId
   constructor(inboxSetting: {
     id: string;
     userId: string;
@@ -28,7 +27,7 @@ export class EmailSyncWorker {
       secure: true,
       auth: {
         user: inboxSetting.emailAddress,
-        pass: decryptedPass, // Decrypted at orchestrator level for safety
+        pass: decryptedPass,
       },
       logger: false,
     };
@@ -44,15 +43,13 @@ export class EmailSyncWorker {
       const clientLock = await this.imap.getMailboxLock('INBOX');
       
       try {
-        // Fetch setting specific to this configuration row
         const userSettings = await prisma.inboxSetting.findFirst({
           where: { emailAddress: this.config.auth.user, userId: this.userId },
         });
 
-        // Fallback setup: Support keyword arrays or custom tracking parameters
         const activeKeywords: string[] = userSettings?.subjectKeywords 
           ? userSettings.subjectKeywords.split(',').map((k: string) => k.trim()) 
-          : ['shipment', 'order', 'delivery'];
+          : ['shipment', 'order', 'delivery', 'tracking'];
 
         console.log(`🎯 [Firewall Config] Loaded active filters for ${this.config.auth.user}:`, activeKeywords);
 
@@ -63,7 +60,7 @@ export class EmailSyncWorker {
         console.log(`📬 [Email Worker] Found ${unreadIds.length} unread email payloads.`);
 
         if (unreadIds.length > 0) {
-          unreadIds.sort((a, b) => b - a); // Newest first
+          unreadIds.sort((a, b) => b - a);
           const batchLimit = 20;
           unreadIds = unreadIds.slice(0, batchLimit);
           console.log(`⚡ [Email Worker] Throttling execution: Processing the ${unreadIds.length} most recent payloads.`);
@@ -89,7 +86,12 @@ export class EmailSyncWorker {
   private async processEmailMessage(uid: number, trackingKeywords: string[], userSettings: any) {
     if (!this.imap) return;
 
-    const messageContent = await this.imap.fetchOne(uid.toString(), { source: true, uid: true, threadId: true});
+    // 🔗 FIX: Fetch envelope data alongside the source stream to capture the global messageId header
+    const messageContent = await this.imap.fetchOne(uid.toString(), { 
+      source: true, 
+      uid: true, 
+      envelope: true 
+    });
     if (!messageContent || !messageContent.source) return;
 
     const parsedEmail = await simpleParser(messageContent.source);
@@ -107,7 +109,6 @@ export class EmailSyncWorker {
     const bodySnippet = cleanedText.slice(0, 300).toLowerCase();
     const intentTarget = userSettings?.trackingSentence?.toLowerCase() || '';
 
-    // 🎯 Task 2.3: Upgraded Semantic Routing Filter Firewall
     let isRelevantIntent = false;
 
     if (intentTarget.includes('logistics') || intentTarget.includes('package') || intentTarget.includes('delivery')) {
@@ -120,7 +121,6 @@ export class EmailSyncWorker {
       isRelevantIntent = /health|skincare|beauty|job|hiring|interview|resume|career/i.test(bodySnippet) ||
                          /health|beauty|job|interview/i.test(subjectLower);
     } else {
-      // General broad-spectrum keyword matching fallback
       isRelevantIntent = trackingKeywords.some(keyword => {
         const standardKeyword = keyword.trim().toLowerCase();
         return (
@@ -150,8 +150,12 @@ export class EmailSyncWorker {
       summaryText = summary;
     }
 
-    const targetThreadId = messageContent.threadId || messageContent.uid;
-    const directEmailUrl = `https://mail.google.com/mail/u/0/#inbox/${targetThreadId}`;
+    // 🔗 FIX: Clean message id brackets and compile standard rfc822 global search link
+    const messageIdRaw = messageContent.envelope?.messageId || '';
+    const cleanMessageId = messageIdRaw.replace(/[<>]/g, '').trim();
+    const directEmailUrl = cleanMessageId 
+      ? `https://mail.google.com/mail/u/0/#search/rfc822msgid%3A${encodeURIComponent(cleanMessageId)}`
+      : `https://mail.google.com/mail/u/0/#inbox`;
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const shipment = await tx.shipment.upsert({
@@ -163,7 +167,7 @@ export class EmailSyncWorker {
         },
         update: {
           status: sentimentLabel === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
-          emailUrl: directEmailUrl // 👈 ADDED LINE: Updates the URL column on matches
+          emailUrl: directEmailUrl
         },
         create: {
           userId: this.userId, 
@@ -172,14 +176,14 @@ export class EmailSyncWorker {
           destination: "Dashboard Sync Queue",
           status: sentimentLabel === 'NEGATIVE' ? 'CRITICAL' : 'ON_TIME',
           currentLocation: "Email Ingestion Inbound",
-          emailUrl: directEmailUrl, // 👈 ADDED LINE: Saves the deep link to the database
+          emailUrl: directEmailUrl
         },
       });
 
       await tx.rawLog.create({
         data: {
           shipmentId: shipment.id,
-          rawText: `SUBJECT: ${subject}\n\n${cleanedText}`,
+          rawText: `SUBJECT: ${subject}\n\n${cleanedText}`, // 📂 Saved here as rawText
           processed: true,
         },
       });
@@ -203,7 +207,7 @@ export class EmailSyncWorker {
       });
     });
 
-    console.log(`✅ [Email Worker] Successfully ingested Tracking Reference: ${activeTrackingNumber}`);
+    console.log(`✅ [Email Worker] Successfully Ingested: ${activeTrackingNumber}`);
     await this.imap.messageFlagsAdd(uid.toString(), ['\\Seen']);
   }
 }

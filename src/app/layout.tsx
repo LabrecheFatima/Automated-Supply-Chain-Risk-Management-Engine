@@ -1,4 +1,6 @@
+// 📂 Location: src/app/layout.tsx
 import type { Metadata } from "next";
+import { Providers } from "./providers"; // 🌟 Importing the SessionProvider wrapper
 import "./globals.css";
 
 // System font variables replace the external Google Fonts downloads
@@ -20,7 +22,12 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/* 🌟 Wrapping the children ensures both login, signup, and the dashboard have session context access */}
+        <Providers>
+          {children}
+        </Providers>
+      </body>
     </html>
   );
 }

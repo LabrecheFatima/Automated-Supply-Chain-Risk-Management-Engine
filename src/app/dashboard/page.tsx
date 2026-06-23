@@ -1,6 +1,9 @@
+// 📂 Location: src/app/dashboard/page.tsx
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 interface ShipmentPayload {
   id: string;
@@ -10,24 +13,26 @@ interface ShipmentPayload {
   status: 'ON_TIME' | 'DELAYED' | 'CRITICAL';
   currentLocation: string | null;
   updatedAt: string;
-  // Added optional direct email connection link parameter mapping
   emailUrl?: string; 
   aiAnalysis?: {
     nlpLabel: string;
     confidenceScore: number;
     severityLevel: number;
     summary: string;
-    // Separate system routing configurations from pure descriptive summaries
     systemRulesBrief?: string; 
   };
   rawLogs?: Array<{
     id: string;
-    bodySnippet: string;
+    rawText?: string;     
+    bodySnippet?: string; 
     receivedAt: string;
   }>;
 }
 
 export default function PremiumDashboard() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
   const [items, setItems] = useState<ShipmentPayload[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,7 +40,17 @@ export default function PremiumDashboard() {
   const [prevTotalItems, setPrevTotalItems] = useState<number>(0);
   const [newRowId, setNewRowId] = useState<string | null>(null);
 
+  // 1. Route Protection Security Gate
   useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, router]);
+
+  // 2. Telemetry Sync Heartbeat Loop
+  useEffect(() => {
+    if (status !== "authenticated") return;
+
     async function loadTelemetry() {
       try {
         const res = await fetch(`/api/shipments?t=${Date.now()}`, {
@@ -71,8 +86,9 @@ export default function PremiumDashboard() {
     }, 5000);
 
     return () => clearInterval(pipelineHeartbeat);
-  }, [prevTotalItems, loading]);
+  }, [prevTotalItems, loading, status]);
 
+  // 3. Derived Analytical Values & Filters
   const totalItems = items.length;
   const criticalAlerts = items.filter(i => i.status === 'CRITICAL').length;
   const delayedAlerts = items.filter(i => i.status === 'DELAYED').length;
@@ -96,7 +112,8 @@ export default function PremiumDashboard() {
     );
   });
 
-  if (loading) {
+  // 4. Client Loading Guard State
+  if (status === "loading" || (loading && status === "authenticated")) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#F4F6FA] text-slate-500 font-sans text-sm tracking-wide">
         <div className="flex items-center gap-3">
@@ -107,23 +124,31 @@ export default function PremiumDashboard() {
     );
   }
 
+  // 5. Dynamic Operator Context Parsing
+  const activeOperatorName = session?.user?.name || "Operator";
+  const avatarInitials = activeOperatorName
+    .split(" ")
+    .map(word => word[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "OP";
+
   return (
     <div className="min-h-screen w-full bg-[#F4F6FA] text-slate-800 font-sans antialiased flex relative overflow-x-hidden">
       
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-6 lg:gap-8 transition-all duration-300">
         
-        {/* LEFT COLUMN: Main Analytics & Targets */}
+        {/* LEFT COLUMN */}
         <div className="flex-1 flex flex-col gap-6 lg:gap-8 lg:w-3/4 w-full">
           
           {/* Header Row */}
           <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Welcome back, Operator</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Welcome back, {activeOperatorName}</h1>
               <p className="text-xs text-slate-500 mt-0.5">Your personal natural language risk pipeline overview.</p>
             </div>
             
-            {/* AI Command Search Engine */}
             <div className="flex items-center gap-3 w-full md:w-auto justify-end">
               <div className="relative w-full md:w-80 group">
                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-teal-500/10 rounded-full blur opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
@@ -138,13 +163,13 @@ export default function PremiumDashboard() {
                   />
                 </div>
               </div>
-              <div className="h-9 w-9 rounded-full bg-indigo-600 flex items-center justify-center text-white font-medium text-xs shadow-sm flex-shrink-0">
-                FZ
+              <div className="h-9 w-9 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold text-xs shadow-sm flex-shrink-0 cursor-default select-none">
+                {avatarInitials}
               </div>
             </div>
           </header>
 
-          {/* TOP GRID: Stats Cards */}
+          {/* TOP GRID */}
           <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
             <div className="bg-white rounded-[24px] p-5 sm:p-6 border border-slate-100 flex flex-col justify-between shadow-sm">
               <div className="flex items-center gap-4">
@@ -153,7 +178,7 @@ export default function PremiumDashboard() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-900 text-sm">LogShield Engine</h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Multi-tenant active instance</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Active Tenant Workspace</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 mt-5 sm:mt-6 pt-4 border-t border-slate-50 text-center">
@@ -174,10 +199,10 @@ export default function PremiumDashboard() {
 
             <div className="relative overflow-hidden rounded-[24px] p-5 sm:p-6 bg-gradient-to-br from-orange-400 via-rose-400 to-rose-500 text-white flex flex-col justify-between shadow-md shadow-rose-500/5">
               <div>
-                <p className="text-[11px] font-medium tracking-wide uppercase opacity-90">Compliance Score</p>
+                <p className="text-[11px] font-medium tracking-wide uppercase opacity-90">Compliance Rate</p>
                 <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mt-2">{onTimeRate}%</h2>
               </div>
-              <div className="text-[11px] opacity-90 mt-5 sm:mt-6">Average across total processed payloads</div>
+              <div className="text-[11px] opacity-90 mt-5 sm:mt-6">Average across isolated payload indexes</div>
             </div>
 
             <div className="relative overflow-hidden rounded-[24px] p-5 sm:p-6 bg-gradient-to-br from-cyan-400 via-sky-400 to-indigo-500 text-white flex flex-col justify-between shadow-md shadow-indigo-500/5 sm:col-span-2 md:col-span-1">
@@ -189,14 +214,14 @@ export default function PremiumDashboard() {
             </div>
           </section>
 
-          {/* MAIN TARGETS DATATABLE COMPONENT */}
+          {/* DATATABLE */}
           <main className="bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden flex-1 flex flex-col">
             <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Ingested Natural Language Targets</h2>
                 <p className="text-[11px] text-slate-400 mt-0.5">Click any record row to expand full deep-dive intelligence metrics</p>
               </div>
-              <span className="text-[11px] font-mono text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md self-start sm:self-auto animate-pulse">● Live Stream Running</span>
+              <span className="text-[11px] font-mono text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md self-start sm:self-auto animate-pulse">● Secure Isolation Stream</span>
             </div>
 
             <div className="overflow-x-auto flex-1">
@@ -204,7 +229,6 @@ export default function PremiumDashboard() {
                 <div className="text-center py-16 text-slate-400 text-xs">No matching target streams found.</div>
               ) : (
                 <>
-                  {/* Desktop view table layout */}
                   <table className="w-full text-left border-collapse hidden md:table">
                     <thead>
                       <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-wider text-slate-400 bg-slate-50/50">
@@ -250,7 +274,6 @@ export default function PremiumDashboard() {
                     </tbody>
                   </table>
 
-                  {/* Mobile stacked view cards */}
                   <div className="flex flex-col divide-y divide-slate-100 md:hidden">
                     {filteredItems.map((item) => (
                       <div 
@@ -285,10 +308,9 @@ export default function PremiumDashboard() {
               )}
             </div>
           </main>
-
         </div>
 
-        {/* RIGHT COLUMN: Context Feed Sidebar */}
+        {/* RIGHT COLUMN */}
         <div className="w-full lg:w-1/4 bg-white rounded-[24px] border border-slate-100 p-5 sm:p-6 flex flex-col gap-6 shadow-sm">
           <div>
             <h3 className="font-bold text-slate-900 text-sm">Pipeline Intelligence</h3>
@@ -319,7 +341,6 @@ export default function PremiumDashboard() {
 
           <hr className="border-slate-100" />
 
-          {/* Recent Ingestion History */}
           <div className="flex flex-col gap-4 flex-1">
             <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Recent Ingestion History</h4>
             <div className="flex flex-col gap-3 overflow-y-auto max-h-[300px] lg:max-h-[350px] pr-1">
@@ -347,10 +368,9 @@ export default function PremiumDashboard() {
             </div>
           </div>
         </div>
-
       </div>
 
-      {/* EXPANDABLE CONTEXT DRAWER COMPONENT */}
+      {/* DRAWER BACKGROUND OVERLAY */}
       <div 
         className={`fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 transition-opacity duration-300 lg:hidden ${
           selectedItem ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -358,19 +378,17 @@ export default function PremiumDashboard() {
         onClick={() => setSelectedItem(null)}
       />
 
+      {/* SLIDING CONTEXT DRAWER */}
       <div className={`fixed bottom-0 right-0 h-[85vh] lg:h-full w-full sm:w-[500px] lg:w-[480px] bg-white/95 backdrop-blur-xl border-t sm:border-t-0 sm:border-l border-slate-200/60 shadow-2xl z-50 transform transition-transform duration-300 ease-out p-5 sm:p-6 flex flex-col gap-5 sm:gap-6 rounded-t-[24px] sm:rounded-t-none ${
         selectedItem ? 'translate-y-0 lg:translate-y-0 lg:translate-x-0' : 'translate-y-full lg:translate-y-0 lg:translate-x-full'
       }`}>
         {selectedItem && (
           <>
-            {/* Drawer Header with Direct Link integration */}
             <div className="flex justify-between items-start border-b border-slate-100 pb-4">
               <div>
                 <span className="text-[10px] font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-500">TARGET REF</span>
                 <div className="flex items-center gap-2 mt-1">
                   <h2 className="text-base font-bold text-slate-900 font-mono">{selectedItem.trackingNumber}</h2>
-                  
-                  {/* Clean, visible direct external email source navigation deep-link icon */}
                   <a 
                     href={selectedItem.emailUrl || `https://mail.google.com/`} 
                     target="_blank" 
@@ -393,10 +411,7 @@ export default function PremiumDashboard() {
               </button>
             </div>
 
-            {/* Scrollable Context Core Block */}
             <div className="flex-1 flex flex-col gap-5 sm:gap-6 overflow-y-auto pr-1 min-h-0">
-              
-              {/* SECTION A: Clean User-Intent Summary */}
               <div className="bg-gradient-to-br from-indigo-50/50 to-slate-50/50 border border-indigo-100/60 rounded-2xl p-4 flex flex-col gap-2 flex-shrink-0">
                 <div className="flex justify-between items-center">
                   <h4 className="text-[11px] font-bold tracking-wide uppercase text-indigo-900">AI User-Intent Summary</h4>
@@ -409,7 +424,6 @@ export default function PremiumDashboard() {
                 </div>
                 <p className="text-xs text-slate-800 font-normal leading-relaxed">
                   {selectedItem.aiAnalysis?.summary && selectedItem.aiAnalysis.summary !== "<." ? (
-                    // Clean check to make sure system instructions blocks are removed from the clean brief display box
                     selectedItem.aiAnalysis.summary.includes("Route The rule") 
                       ? "A core system rule matrix was triggered by an incoming email payload. The layout contains structural configurations, automation conditions, or code blocks that are fully extracted in the technical section below."
                       : selectedItem.aiAnalysis.summary
@@ -419,7 +433,6 @@ export default function PremiumDashboard() {
                 </p>
               </div>
 
-              {/* SECTION B: Split Technical Rules Extraction (The messy system instructions display separately here) */}
               {selectedItem.aiAnalysis?.summary && selectedItem.aiAnalysis.summary.includes("Route The rule") && (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col gap-2 flex-shrink-0">
                   <h4 className="text-[11px] font-bold tracking-wide uppercase text-slate-500">Automated Route Configuration Matrix</h4>
@@ -429,8 +442,7 @@ export default function PremiumDashboard() {
                 </div>
               )}
 
-              {/* Model Telemetry Grid */}
-              <div className="flex-shrink-0">
+              <div>
                 <h4 className="text-[11px] font-bold tracking-wide uppercase text-slate-400 mb-2.5">Model Scoring Analytics</h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
@@ -448,24 +460,27 @@ export default function PremiumDashboard() {
                 </div>
               </div>
 
-              {/* Core Ingested Log Block */}
               <div className="flex-1 flex flex-col min-h-[200px]">
                 <h4 className="text-[11px] font-bold tracking-wide uppercase text-slate-400 mb-2">Extracted Stream Content</h4>
                 <div className="flex-1 bg-slate-900 rounded-2xl p-4 font-mono text-[11px] text-slate-300 overflow-y-auto leading-relaxed select-text border border-slate-950 shadow-inner">
                   <div className="text-slate-500 mb-2 border-b border-slate-800/60 pb-1.5 text-[10px]">
-                    FROM: {selectedItem.origin} <br/>
-                    STAMP: {new Date(selectedItem.updatedAt).toLocaleString()}
+                    <span className="text-indigo-400 font-bold">FROM:</span> {selectedItem.origin} <br/>
+                    <span className="text-indigo-400 font-bold">STAMP:</span> {new Date(selectedItem.updatedAt).toLocaleString()}
                   </div>
-                  {selectedItem.rawLogs && selectedItem.rawLogs.length > 0 
-                    ? selectedItem.rawLogs[0].bodySnippet 
-                    : "No raw text payloads attached to this synchronized operational database layout reference."}
+                  
+                  {selectedItem.rawLogs && selectedItem.rawLogs.length > 0 ? (
+                    <div className="whitespace-pre-wrap text-slate-200">
+                      {selectedItem.rawLogs[0].rawText || selectedItem.rawLogs[0].bodySnippet}
+                    </div>
+                  ) : (
+                    <div className="text-slate-500 italic">No text payloads attached to this reference.</div>
+                  )}
                 </div>
               </div>
             </div>
           </>
         )}
       </div>
-
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { encryptPassword } from '../src/lib/crypto';
+import bcrypt from 'bcryptjs';
 
 // Self-contained instantiation ensures the client reads the fresh schema updates
 const prisma = new PrismaClient();
@@ -16,11 +17,13 @@ async function main() {
 
   console.log('🧹 Database cleared. Inserting fresh multi-tenant profiles and logistics records...');
 
-  // 2. Create User 1: Logistics Focus (Fatima)
+  const secureHashedSecret = await bcrypt.hash('password123', 10);
+
   const user1 = await prisma.user.create({
     data: {
       email: 'fatimalabreche438@gmail.com',
       name: 'Fatima Zohra Labreche',
+      password: secureHashedSecret, // 👈 3. ADD THIS LINE HERE
       inboxSettings: {
         create: {
           emailAddress: 'fatimalabreche438@gmail.com',
@@ -33,11 +36,12 @@ async function main() {
     }
   });
 
-  // 3. Create User 2: Education & Research Focus (Amine)
+  // 4. Create User 2: Education & Research Focus (Amine)
   const user2 = await prisma.user.create({
     data: {
       email: 'student.test@univ-algiers.dz',
       name: 'Amine Algiers Dev',
+      password: secureHashedSecret, // 👈 4. ADD THIS LINE HERE TOO
       inboxSettings: {
         create: {
           emailAddress: 'student.test@univ-algiers.dz',
