@@ -1,4 +1,4 @@
-// 📂 Location: src/app/api/shipments/route.ts
+
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth"; // 🌟 For secure server-side session fetching
 import { authOptions } from "../auth/[...nextauth]/route"; // Update this path to where your authOptions are exported

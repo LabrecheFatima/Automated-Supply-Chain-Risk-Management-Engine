@@ -3,7 +3,7 @@ import { prisma } from '../../../lib/db';
 import { processIncomingLog } from '../../../lib/nlp';
 import { extractTrackingId } from '../../../lib/extractor';
 import { IngestPayloadSchema } from '../../../lib/validation';
-
+// ylfq wlye xqsx jlfk
 export async function POST(request: Request) {
   try {
     // 1. Structural Body Check
@@ -17,23 +17,35 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Validation Check
-    const validation = IngestPayloadSchema.safeParse(jsonBody);
-    if (!validation.success) {
-      const errorMessages = validation.error.errors.map((err) => err.message);
-      return NextResponse.json({ success: false, error: 'Validation failed.', details: errorMessages }, { status: 400 });
-    }
+    const validation = IngestPayloadSchema.safeParse(jsonBody); //
+      if (!validation.success) {
+        const errorMessages = validation.error.issues.map((err) => err.message);
+        
+        return NextResponse.json(
+          { success: false, error: 'Validation failed.', details: errorMessages },
+          { status: 400 }
+        );
+      }
 
     // Capture rawText and the incoming deep emailUrl string from request payload
     // Ensure your Zod schema (IngestPayloadSchema) supports emailUrl as an optional string field!
-    const { rawText, emailUrl } = validation.data as any; 
+    const { rawText, emailUrl, email } = validation.data as any; 
 
-    // Fetch the active target workspace operator account context
-    const defaultUser = await prisma.user.findFirst();
-    if (!defaultUser) {
-      return NextResponse.json({ error: "No active workspace user profile context discovered." }, { status: 404 });
+    if (!email) {
+      return NextResponse.json({ success: false, error: "Missing identity tracking context (email)." }, { status: 400 });
     }
-    const userId = defaultUser.id;
+
+    const userSetting = await prisma.inboxSetting.findFirst({
+      where: { 
+        emailAddress: email.toLowerCase().trim() },
+    });
+
+    if (!userSetting) {
+      return NextResponse.json({ error: "No configured mailbox workspace discovered for this identity profile." }, { status: 404 });
+    }
+
+    
+    const userId = userSetting.userId;
 
     // 3. Compute AI Analytics & Extract Tracking Code
     const { sentiment, summary } = await processIncomingLog(rawText);
@@ -101,7 +113,7 @@ export async function POST(request: Request) {
       return { shipment, rawLog, aiAnalysis };
     });
 
-    // 5. Success Response Output
+// 5. Success Response Output
     return NextResponse.json({
       success: true,
       message: 'Log pipeline executed and saved to your tracking records structure.',
